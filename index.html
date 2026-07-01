@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HC PrimerOrder</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <nav class="brand-row" aria-label="Main">
+          <span class="brand-mark">HC</span>
+          <span class="brand-name">HC PrimerOrder</span>
+          <span class="mode-pill">Public browser tool</span>
+        </nav>
+        <div class="title-row">
+          <div class="title-copy">
+            <p class="eyebrow">SnapGene primer order helper</p>
+            <h1>HC PrimerOrder</h1>
+            <p id="todayText" class="subtitle"></p>
+            <div class="gene-fragment" aria-hidden="true">
+              <div class="gene-track">
+                <span class="primer primer-forward"></span>
+                <span class="gene-block gene-block-promoter"></span>
+                <span class="gene-block gene-block-insert"></span>
+                <span class="gene-block gene-block-tag"></span>
+                <span class="primer primer-reverse"></span>
+              </div>
+              <div class="base-row">
+                <span>ATG</span>
+                <span>insert</span>
+                <span>TAA</span>
+              </div>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button id="generateButton" class="primary-action" type="button" disabled>生成订单表</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="workspace" aria-label="文件上传区">
+        <div class="upload-window" id="primerDrop">
+          <div class="window-head">
+            <span class="step-dot">1</span>
+            <h2>SnapGene 引物文件</h2>
+          </div>
+          <input id="primerInput" class="file-input" type="file" accept=".txt,.tsv,.csv,text/plain" />
+          <button class="drop-target" type="button" data-for="primerInput">
+            <span class="drop-title" id="primerFileName">选择或拖入引物文件</span>
+            <span class="drop-meta" id="primerMeta">TXT / TSV</span>
+          </button>
+          <div class="preview-panel">
+            <div class="preview-head">
+              <span>引物预览</span>
+              <span id="primerCount">0 条</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>长度</th>
+                  </tr>
+                </thead>
+                <tbody id="primerPreview">
+                  <tr>
+                    <td colspan="2" class="empty-cell">等待文件</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="upload-window" id="orderDrop">
+          <div class="window-head">
+            <span class="step-dot">2</span>
+            <h2>订单表格</h2>
+          </div>
+          <input id="orderInput" class="file-input" type="file" accept=".xlsx" />
+          <button class="drop-target" type="button" data-for="orderInput">
+            <span class="drop-title" id="orderFileName">选择或拖入订单表格</span>
+            <span class="drop-meta" id="orderMeta">XLSX</span>
+          </button>
+          <div class="preview-panel order-preview">
+            <div class="preview-head">
+              <span>输出文件</span>
+              <span id="orderStatus">未就绪</span>
+            </div>
+            <div class="output-name" id="outputName">等待订单表格</div>
+            <dl class="file-facts">
+              <div>
+                <dt>模板</dt>
+                <dd id="templateFact">-</dd>
+              </div>
+              <div>
+                <dt>日期</dt>
+                <dd id="dateFact">-</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <section class="status-strip" aria-live="polite">
+        <span id="statusText">放入两个文件后即可生成。文件只在当前浏览器中处理。</span>
+        <a id="downloadLink" class="download-link" href="#" download hidden>下载</a>
+      </section>
+    </main>
+
+    <script src="./exceljs.min.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
