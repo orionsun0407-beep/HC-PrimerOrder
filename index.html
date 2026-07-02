@@ -84,6 +84,22 @@
             <span class="drop-title" id="orderFileName">选择或拖入订单表格</span>
             <span class="drop-meta" id="orderMeta">XLSX</span>
           </button>
+          <div class="template-tools">
+            <label class="field-label" for="templateNameInput">模板名称</label>
+            <input
+              id="templateNameInput"
+              class="template-name-input"
+              type="text"
+              placeholder="订单模板名称"
+              autocomplete="off"
+            />
+            <div class="template-actions">
+              <button id="saveTemplateButton" class="secondary-action" type="button" disabled>保存模板</button>
+              <button id="loadTemplateButton" class="secondary-action" type="button" disabled>使用保存模板</button>
+              <button id="clearTemplateButton" class="secondary-action subtle" type="button" disabled>清除模板</button>
+            </div>
+            <div id="savedTemplateText" class="saved-template-text">未保存模板</div>
+          </div>
           <div class="preview-panel order-preview">
             <div class="preview-head">
               <span>输出文件</span>

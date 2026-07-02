@@ -8,6 +8,16 @@ const ORDER_DEFAULTS = {
   delivery: "液体",
 };
 
+const TEMPLATE_DB = {
+  name: "hc-primerorder",
+  version: 1,
+  store: "saved-templates",
+  id: "order-template",
+};
+
+const WORKBOOK_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 const primerInput = document.querySelector("#primerInput");
 const orderInput = document.querySelector("#orderInput");
 const generateButton = document.querySelector("#generateButton");
@@ -21,6 +31,11 @@ const orderStatus = document.querySelector("#orderStatus");
 const outputName = document.querySelector("#outputName");
 const templateFact = document.querySelector("#templateFact");
 const dateFact = document.querySelector("#dateFact");
+const templateNameInput = document.querySelector("#templateNameInput");
+const saveTemplateButton = document.querySelector("#saveTemplateButton");
+const loadTemplateButton = document.querySelector("#loadTemplateButton");
+const clearTemplateButton = document.querySelector("#clearTemplateButton");
+const savedTemplateText = document.querySelector("#savedTemplateText");
 const todayText = document.querySelector("#todayText");
 const statusStrip = document.querySelector(".status-strip");
 const statusText = document.querySelector("#statusText");
@@ -30,6 +45,7 @@ let primerFile = null;
 let orderFile = null;
 let parsedPrimers = [];
 let lastDownloadUrl = null;
+let savedTemplateRecord = null;
 
 function normalizeSequence(rawSequence) {
   return rawSequence.replace(/\s+/g, "");
@@ -137,6 +153,82 @@ function makeDatedOutputName(templateFileName, date = new Date()) {
   return `${baseName}-${tokens.compact}${extension}`;
 }
 
+function stripWorkbookExtension(fileName) {
+  return (fileName || "").replace(/\.xlsx$/i, "").trim();
+}
+
+function normalizeTemplateFileName(templateName, fallbackFileName = "引物合成订购单.xlsx") {
+  const fallback = fallbackFileName?.trim() || "引物合成订购单.xlsx";
+  const rawName = templateName?.trim() || fallback;
+  const withoutExtension = stripWorkbookExtension(rawName) || stripWorkbookExtension(fallback);
+  return `${withoutExtension || "引物合成订购单"}.xlsx`;
+}
+
+function getTemplateDisplayName(record) {
+  return record?.templateName || stripWorkbookExtension(record?.fileName) || "订单模板";
+}
+
+function openTemplateDb() {
+  if (!window.indexedDB) {
+    return Promise.reject(new Error("当前浏览器不支持保存模板。"));
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(TEMPLATE_DB.name, TEMPLATE_DB.version);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(TEMPLATE_DB.store)) {
+        db.createObjectStore(TEMPLATE_DB.store, { keyPath: "id" });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("保存模板数据库打开失败。"));
+  });
+}
+
+async function useTemplateStore(mode, action) {
+  const db = await openTemplateDb();
+
+  return new Promise((resolve, reject) => {
+    let result;
+    const transaction = db.transaction(TEMPLATE_DB.store, mode);
+    const store = transaction.objectStore(TEMPLATE_DB.store);
+    const request = action(store);
+
+    request.onsuccess = () => {
+      result = request.result;
+    };
+    request.onerror = () => reject(request.error || new Error("保存模板操作失败。"));
+    transaction.oncomplete = () => {
+      db.close();
+      resolve(result);
+    };
+    transaction.onerror = () => reject(transaction.error || new Error("保存模板操作失败。"));
+    transaction.onabort = () => reject(transaction.error || new Error("保存模板操作中止。"));
+  });
+}
+
+function readSavedTemplate() {
+  return useTemplateStore("readonly", (store) => store.get(TEMPLATE_DB.id));
+}
+
+function writeSavedTemplate(record) {
+  return useTemplateStore("readwrite", (store) => store.put(record));
+}
+
+function deleteSavedTemplate() {
+  return useTemplateStore("readwrite", (store) => store.delete(TEMPLATE_DB.id));
+}
+
+function makeFileFromTemplateRecord(record) {
+  return new File([record.buffer], record.fileName, {
+    type: WORKBOOK_MIME,
+    lastModified: record.savedAt ? Date.parse(record.savedAt) : Date.now(),
+  });
+}
+
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -149,18 +241,47 @@ function setStatus(message, type = "") {
   statusStrip.classList.toggle("warn", type === "warn");
 }
 
+function renderSavedTemplateState() {
+  if (savedTemplateRecord) {
+    savedTemplateText.textContent = `已保存：${getTemplateDisplayName(savedTemplateRecord)}`;
+    loadTemplateButton.disabled = false;
+    clearTemplateButton.disabled = false;
+  } else {
+    savedTemplateText.textContent = "未保存模板";
+    loadTemplateButton.disabled = true;
+    clearTemplateButton.disabled = true;
+  }
+}
+
 function updateGenerateState() {
   generateButton.disabled = !(primerFile && orderFile && parsedPrimers.length > 0);
+  saveTemplateButton.disabled = !orderFile;
+  renderSavedTemplateState();
+
   if (orderFile) {
-    const projectedName = makeDatedOutputName(orderFile.name);
+    const projectedName = makeDatedOutputName(getActiveTemplateFileName());
     outputName.textContent = projectedName;
-    templateFact.textContent = orderFile.name;
+    templateFact.textContent = templateNameInput.value.trim() || stripWorkbookExtension(orderFile.name);
     orderStatus.textContent = "已选择";
   } else {
     outputName.textContent = "等待订单表格";
     templateFact.textContent = "-";
     orderStatus.textContent = "未就绪";
   }
+}
+
+function setOrderFile(file, options = {}) {
+  clearDownload();
+  orderFile = file;
+  orderFileName.textContent = file.name;
+  orderMeta.textContent = formatBytes(file.size);
+  templateNameInput.value = options.templateName || stripWorkbookExtension(file.name);
+  if (options.status) setStatus(options.status);
+  updateGenerateState();
+}
+
+function getActiveTemplateFileName() {
+  return normalizeTemplateFileName(templateNameInput.value, orderFile?.name);
 }
 
 function renderPrimerPreview(primers) {
@@ -221,12 +342,7 @@ async function handlePrimerFile(file) {
 }
 
 function handleOrderFile(file) {
-  clearDownload();
-  orderFile = file;
-  orderFileName.textContent = file.name;
-  orderMeta.textContent = formatBytes(file.size);
-  setStatus("订单表格已选择。");
-  updateGenerateState();
+  setOrderFile(file, { status: "订单表格已选择。" });
 }
 
 function setupDropWindow(windowElement, inputElement, onFile) {
@@ -314,13 +430,95 @@ async function generateWorkbook() {
   await workbook.xlsx.load(await orderFile.arrayBuffer());
   fillOrderWorkbook(workbook, parsedPrimers);
   const outputBuffer = await workbook.xlsx.writeBuffer();
-  const outputFileName = makeDatedOutputName(orderFile.name);
+  const outputFileName = makeDatedOutputName(getActiveTemplateFileName());
   return {
     outputFileName,
     blob: new Blob([outputBuffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
   };
+}
+
+async function applySavedTemplate(options = {}) {
+  if (!savedTemplateRecord) return false;
+
+  try {
+    const templateName = getTemplateDisplayName(savedTemplateRecord);
+    setOrderFile(makeFileFromTemplateRecord(savedTemplateRecord), {
+      templateName,
+      status: options.silent ? "" : `已使用保存模板：${templateName}。`,
+    });
+    return true;
+  } catch (error) {
+    setStatus(error.message || "保存模板读取失败。", "error");
+    return false;
+  }
+}
+
+async function saveCurrentTemplate() {
+  if (!orderFile) return;
+
+  saveTemplateButton.disabled = true;
+  setStatus("正在保存模板...");
+
+  try {
+    const fileName = getActiveTemplateFileName();
+    const templateName = stripWorkbookExtension(fileName);
+    const buffer = await orderFile.arrayBuffer();
+    const record = {
+      id: TEMPLATE_DB.id,
+      templateName,
+      fileName,
+      originalFileName: orderFile.name,
+      size: buffer.byteLength,
+      savedAt: new Date().toISOString(),
+      buffer: buffer.slice(0),
+    };
+
+    await writeSavedTemplate(record);
+    savedTemplateRecord = record;
+    setOrderFile(new File([buffer.slice(0)], fileName, { type: WORKBOOK_MIME }), {
+      templateName,
+      status: `已保存模板：${templateName}。`,
+    });
+  } catch (error) {
+    setStatus(error.message || "模板保存失败。", "error");
+    updateGenerateState();
+  }
+}
+
+async function clearSavedTemplate() {
+  if (!savedTemplateRecord) return;
+
+  clearTemplateButton.disabled = true;
+
+  try {
+    await deleteSavedTemplate();
+    savedTemplateRecord = null;
+    renderSavedTemplateState();
+    setStatus("已清除保存的模板。");
+    updateGenerateState();
+  } catch (error) {
+    setStatus(error.message || "保存模板清除失败。", "error");
+    updateGenerateState();
+  }
+}
+
+async function initializeSavedTemplate() {
+  try {
+    savedTemplateRecord = await readSavedTemplate();
+    renderSavedTemplateState();
+    if (savedTemplateRecord) {
+      await applySavedTemplate({ silent: true });
+      setStatus(`已载入保存模板：${getTemplateDisplayName(savedTemplateRecord)}。`);
+    } else {
+      updateGenerateState();
+    }
+  } catch (error) {
+    savedTemplateRecord = null;
+    renderSavedTemplateState();
+    setStatus("保存模板功能暂不可用，可继续手动选择订单表格。", "warn");
+  }
 }
 
 generateButton.addEventListener("click", async () => {
@@ -346,9 +544,15 @@ generateButton.addEventListener("click", async () => {
   }
 });
 
+templateNameInput.addEventListener("input", updateGenerateState);
+saveTemplateButton.addEventListener("click", saveCurrentTemplate);
+loadTemplateButton.addEventListener("click", () => applySavedTemplate());
+clearTemplateButton.addEventListener("click", clearSavedTemplate);
+
 setupDropWindow(document.querySelector("#primerDrop"), primerInput, handlePrimerFile);
 setupDropWindow(document.querySelector("#orderDrop"), orderInput, handleOrderFile);
 
 const tokens = dateTokens();
 todayText.textContent = `今日版本 ${tokens.compact}`;
 dateFact.textContent = tokens.compact;
+initializeSavedTemplate();
