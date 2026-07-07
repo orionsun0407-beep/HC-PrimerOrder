@@ -384,14 +384,53 @@ function clearCell(cell) {
   cell.value = null;
 }
 
+function clonePlainObject(value) {
+  if (!value || typeof value !== "object") return value;
+  return JSON.parse(JSON.stringify(value));
+}
+
+function copyRowStyle(sourceRow, targetRow) {
+  targetRow.height = sourceRow.height;
+  targetRow.style = clonePlainObject(sourceRow.style) || {};
+
+  const columnCount = Math.max(sourceRow.cellCount, sourceRow.worksheet.columnCount);
+  for (let column = 1; column <= columnCount; column += 1) {
+    targetRow.getCell(column).style = clonePlainObject(sourceRow.getCell(column).style) || {};
+  }
+}
+
+function duplicateTemplateRows(worksheet, templateRowNumber, rowsToAdd) {
+  if (rowsToAdd <= 0) return;
+
+  if (typeof worksheet.duplicateRow === "function") {
+    worksheet.duplicateRow(templateRowNumber, rowsToAdd, true);
+    return;
+  }
+
+  const emptyRows = Array.from({ length: rowsToAdd }, () => []);
+  worksheet.spliceRows(templateRowNumber + 1, 0, ...emptyRows);
+
+  const sourceRow = worksheet.getRow(templateRowNumber);
+  for (let offset = 1; offset <= rowsToAdd; offset += 1) {
+    copyRowStyle(sourceRow, worksheet.getRow(templateRowNumber + offset));
+  }
+}
+
+function ensureOrderCapacity(worksheet, config, requiredRows) {
+  const baseCapacity = config.lastDataRow - config.firstDataRow + 1;
+  if (requiredRows <= baseCapacity) {
+    return { capacity: baseCapacity, addedRows: 0 };
+  }
+
+  const addedRows = requiredRows - baseCapacity;
+  duplicateTemplateRows(worksheet, config.lastDataRow, addedRows);
+  return { capacity: requiredRows, addedRows };
+}
+
 function fillOrderWorkbook(workbook, primers, options = {}) {
   const config = { ...ORDER_DEFAULTS, ...options };
   const worksheet = getRequiredWorksheet(workbook, config.dataSheet);
-  const capacity = config.lastDataRow - config.firstDataRow + 1;
-
-  if (primers.length > capacity) {
-    throw new Error(`订单表当前只有 ${capacity} 行可填，引物有 ${primers.length} 条。`);
-  }
+  const { capacity, addedRows } = ensureOrderCapacity(worksheet, config, primers.length);
 
   for (let index = 0; index < capacity; index += 1) {
     const rowNumber = config.firstDataRow + index;
@@ -419,6 +458,8 @@ function fillOrderWorkbook(workbook, primers, options = {}) {
       }
     }
   }
+
+  return { addedRows, filledRows: primers.length, capacity };
 }
 
 async function generateWorkbook() {
@@ -428,11 +469,12 @@ async function generateWorkbook() {
 
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(await orderFile.arrayBuffer());
-  fillOrderWorkbook(workbook, parsedPrimers);
+  const fillResult = fillOrderWorkbook(workbook, parsedPrimers);
   const outputBuffer = await workbook.xlsx.writeBuffer();
   const outputFileName = makeDatedOutputName(getActiveTemplateFileName());
   return {
     outputFileName,
+    addedRows: fillResult.addedRows,
     blob: new Blob([outputBuffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
@@ -529,14 +571,15 @@ generateButton.addEventListener("click", async () => {
   setStatus("正在生成订单表...");
 
   try {
-    const { outputFileName, blob } = await generateWorkbook();
+    const { outputFileName, blob, addedRows } = await generateWorkbook();
     lastDownloadUrl = URL.createObjectURL(blob);
     downloadLink.href = lastDownloadUrl;
     downloadLink.download = outputFileName;
     downloadLink.hidden = false;
     downloadLink.click();
     outputName.textContent = outputFileName;
-    setStatus(`已生成 ${outputFileName}`);
+    const expandText = addedRows > 0 ? `，已自动增加 ${addedRows} 行` : "";
+    setStatus(`已生成 ${outputFileName}${expandText}`);
   } catch (error) {
     setStatus(error.message || "生成失败。", "error");
   } finally {

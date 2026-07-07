@@ -11,6 +11,7 @@ Open `index.html`, upload:
 
 The workbook is edited in the browser and downloaded with today's date in the file name.
 The order template can be saved in the browser with a custom template name and reused later.
+If the primer list is longer than the visible order rows, matching rows are added automatically.
 
 ## Privacy
 
